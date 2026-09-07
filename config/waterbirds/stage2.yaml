@@ -1,0 +1,43 @@
+# Stage II CAFIL classifier for waterbirds.
+# Consumes train-aligned P.npy and consscore.npy, then selects the checkpoint by validation WGA.
+# Group/context metadata is used only for evaluation, never as a training signal.
+
+seed: 42
+dataset:
+  name: waterbirds
+  stage1_dir: ${env:CAFIL_OUTPUT_ROOT}/cafil_best/waterbirds/concept
+  data_dir: ${env:CAFIL_DATA_ROOT}
+model:
+  backbone: resnet50
+  pretrained: imagenet
+  num_classes: 2
+optim:
+  type: sgd
+  lr: 0.001
+  momentum: 0.9
+  weight_decay: 0.0001
+  nesterov: false
+sched:
+  type: cosine
+  t_max: 100
+train:
+  epochs: 100
+  batch_size: 64
+  num_workers: 4
+  max_num_checkpoint: 3
+  sampler:
+    type: random
+  warmup:
+    enabled: false
+eval:
+  primary_metric: wga
+  test_at_end: true
+loss:
+  type: cafil_align
+  eta: 12.0
+  lam_align: 8.0
+  anchor_update_rate: 0.05
+  label_smoothing: 0.0
+output:
+  run_dir: ${env:CAFIL_OUTPUT_ROOT}/cafil_best/waterbirds/stage2
+  log_path: ${env:CAFIL_OUTPUT_ROOT}/cafil_best/waterbirds/stage2/train.log

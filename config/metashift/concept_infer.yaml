@@ -1,0 +1,16 @@
+# Stage I -> Stage II concept inference for metashift.
+# Loads the reviewed Stage-I checkpoint, fits prototypes on train, and writes train-aligned P.npy and consscore.npy.
+# config_name resolves the corresponding config/<dataset>/stage1.yaml.
+
+config_name: metashift
+prototype_split: train
+eval_split: train
+num_prototypes: 8
+temperature: 0.1
+pipeline_random_state: 42
+density_k_frac: 0.05
+density_k_min: 10
+concept_dict_backend: torch
+density_backend: exact_js
+density_chunk: 4096
+output_dir: ${env:CAFIL_OUTPUT_ROOT}/cafil_best/metashift/concept

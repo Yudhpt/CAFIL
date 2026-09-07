@@ -1,0 +1,11 @@
+# Install torch and torchvision separately with a build compatible with the target CPU/CUDA platform.
+# Core CAFIL runtime dependencies.
+numpy==1.26.4
+pandas==2.3.3
+Pillow==12.0.0
+PyYAML==6.0.3
+tqdm==4.65.2
+scikit-learn==1.7.2
+
+# Test dependency.
+pytest==9.0.3

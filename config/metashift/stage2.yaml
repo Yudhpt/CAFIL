@@ -1,0 +1,49 @@
+# Stage II CAFIL classifier for metashift.
+# Consumes train-aligned P.npy and consscore.npy, then selects the checkpoint by validation WGA.
+# Group/context metadata is used only for evaluation, never as a training signal.
+
+seed: 42
+dataset:
+  name: metashift
+  data_dir: ${env:CAFIL_DATA_ROOT}
+  image_size: 224
+  stage1_dir: ${env:CAFIL_OUTPUT_ROOT}/cafil_best/metashift/concept
+model:
+  backbone: resnet50
+  pretrained: imagenet
+  num_classes: 2
+optim:
+  type: sgd
+  lr: 0.001
+  momentum: 0.9
+  weight_decay: 0.0001
+  nesterov: true
+sched:
+  type: cosine
+  t_max: 100
+train:
+  epochs: 100
+  eval_every: 1
+  batch_size: 64
+  num_workers: 4
+  amp: true
+  channels_last: true
+  max_num_checkpoint: 3
+  sampler:
+    type: random
+  warmup:
+    enabled: true
+    epochs: 5
+    start_lr: 1.0e-05
+eval:
+  primary_metric: wga
+  test_at_end: true
+loss:
+  type: cafil_align
+  eta: 4.0
+  lam_align: 6.0
+  anchor_update_rate: 0.95
+  label_smoothing: 0.0
+output:
+  run_dir: ${env:CAFIL_OUTPUT_ROOT}/cafil_best/metashift/stage2
+  log_path: ${env:CAFIL_OUTPUT_ROOT}/cafil_best/metashift/stage2/train.log

@@ -1,0 +1,16 @@
+# Stage I -> Stage II concept inference for celeba.
+# Loads the reviewed Stage-I checkpoint, fits prototypes on train, and writes train-aligned P.npy and consscore.npy.
+# config_name resolves the corresponding config/<dataset>/stage1.yaml.
+
+config_name: celeba
+prototype_split: train
+eval_split: train
+num_prototypes: 10
+temperature: 0.1
+pipeline_random_state: 42
+density_k_frac: 0.15
+density_k_min: 10
+concept_dict_backend: faiss_spherical
+density_backend: torch_hellinger_gpu
+density_chunk: 2048
+output_dir: ${env:CAFIL_OUTPUT_ROOT}/cafil_best/celeba/concept

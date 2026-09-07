@@ -1,0 +1,93 @@
+# Public repository scope: CAFIL source, configs, active scripts, and README only.
+# Local results, documentation, extensions, and generated artifacts stay on disk.
+
+# Documentation, reports, extensions, and local project metadata
+/docs/
+/reports/
+/extensions/
+/figures/
+/legacy/
+/third_party/
+/.cursor/
+/.cursorrules
+AGENTS.md
+/*.md
+!/README.md
+/*.pdf
+/*.csv
+/*.json
+/*.png
+/*.jpg
+/*.jpeg
+/*.svg
+
+# Data: retain Python dataset adapters, exclude local metadata and generated data.
+/data/metadata/
+/data/*
+!/data/*.py
+!/data/dataloader/
+!/data/dataloader/*.py
+
+# Experiment orchestration and archived scripts stay local.
+/exp/
+/scripts/_archive*/
+
+# Runtime outputs, checkpoints, and experiment records
+/logs/
+/results/
+/output/
+/checkpoint/
+/checkpoints/
+/sweep_runs/
+/runs/
+/wandb/
+/lightning_logs/
+/tb_logs/
+/outputs/
+sweep_all.log
+*.log
+*.nohup.log
+*.out
+*.pid
+events.out.tfevents.*
+
+# Model and export artifacts
+*.pth
+*.pt
+*.ckpt
+*.safetensors
+*.onnx
+*.npy
+*.npz
+
+# Local environments, secrets, caches, and temporary files
+.env
+.env.*
+!.env.example
+.cache/
+cache/
+tmp/
+temp/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+env/
+
+# Backups and editor files
+*.bak
+*.bak_*
+*.orig
+*.rej
+*~
+*.swo
+*.swp
+.idea/
+.vscode/
+.DS_Store

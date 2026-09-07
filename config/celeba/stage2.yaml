@@ -1,0 +1,64 @@
+# Stage II CAFIL classifier for celeba.
+# Consumes train-aligned P.npy and consscore.npy, then selects the checkpoint by validation WGA.
+# Group/context metadata is used only for evaluation, never as a training signal.
+
+# CAFIL Stage-II（final 3seed uses [42,1,2]; val-WGA 选模）
+# checkpoint: ${env:CAFIL_OUTPUT_ROOT}/cafil_best/celeba/stage2/
+seed: 42
+
+runtime:
+  cudnn_benchmark: true
+
+dataset:
+  name: celeba
+  stage1_dir: ${env:CAFIL_OUTPUT_ROOT}/cafil_best/celeba/concept
+  data_dir: ${env:CAFIL_DATA_ROOT}
+
+model:
+  backbone: resnet50
+  pretrained: imagenet
+  num_classes: 2
+
+optim:
+  type: sgd
+  lr: 0.0001
+  momentum: 0.9
+  weight_decay: 0.0012
+  nesterov: true
+
+sched:
+  type: cosine
+  t_max: 60
+
+train:
+  epochs: 60
+  eval_every: 1
+  batch_size: 256
+  num_workers: 8
+  amp: true
+  channels_last: true
+  persistent_workers: true
+  prefetch_factor: 4
+  max_num_checkpoint: 5
+  warmup:
+    enabled: true
+    epochs: 5
+    start_lr: 5.0e-06
+  sampler:
+    type: class_balanced
+    replacement: true
+
+eval:
+  primary_metric: wga
+  test_at_end: true
+loss:
+  type: cafil_align
+  eta: 12.0
+  lam_align: 0.8
+  anchor_update_rate: 0.1
+  label_smoothing: 0.1
+  num_buckets: 10
+
+output:
+  run_dir: ${env:CAFIL_OUTPUT_ROOT}/cafil_best/celeba/stage2
+  log_path: ${env:CAFIL_OUTPUT_ROOT}/cafil_best/celeba/stage2/train.log

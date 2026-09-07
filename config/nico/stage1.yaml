@@ -1,0 +1,54 @@
+# Stage I: train frozen DINO + Slot Attention on this dataset.
+# Publishes the reviewed Stage-I checkpoint consumed by concept_infer.yaml; keep sample order stable across stages.
+
+runtime:
+  seed: 54
+  device: cuda
+  num_workers: 8
+paths:
+  output_root: ${env:CAFIL_OUTPUT_ROOT}/cafil_best/nico
+  checkpoint_root: ${env:CAFIL_OUTPUT_ROOT}/cafil_best/nico
+  data_root: ${env:CAFIL_DATA_ROOT}
+  checkpoint_experiment_name: stage1
+  checkpoint_publish_name: best_cafil_stage1.pth
+data:
+  format: nico
+  root: ${paths.data_root}
+  image_size: 224
+eval:
+  batch_size: 128
+train:
+  epochs: 100
+  batch_size: 128
+  lr: 0.0001
+  weight_decay: 0.0001
+  progress_log_every: 10
+model:
+  slot_attention:
+    num_iterations: 3
+    epsilon: 1.0e-08
+    mlp_hidden_size: 512
+    qkv_bias: false
+    slot_init_scale: 1.0
+    slot_init_mode: random
+method:
+  stage1:
+    dino_model_name: dinov2_vitb14
+    dino_img_size: 224
+    dino_torch_home: ${env:CAFIL_DINO_HOME}
+    dino_dim: 768
+    slot_dim: 256
+    num_slots: 8
+    num_classes: 10
+    lambda_recon: 1.0
+    lambda_cls: 0.2
+    lambda_overlap: 0.05
+    lambda_entropy: 0.02
+    use_mock_dino: false
+    train_target: slot_only
+    probe_refit:
+      enabled: true
+      epochs: 8
+      reset_classifier: true
+experiment:
+  name: cafil_best_nico_stage1

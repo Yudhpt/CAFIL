@@ -1,0 +1,52 @@
+# Stage II CAFIL classifier for NICO in the pure annotation-free protocol.
+# Consumes train-aligned P.npy and consscore.npy, then selects by validation mean accuracy.
+# No group/context metadata is loaded for validation or inference.
+
+seed: 42
+runtime:
+  cudnn_benchmark: true
+dataset:
+  name: nico
+  stage1_dir: ${env:CAFIL_OUTPUT_ROOT}/cafil_best/nico/concept
+  data_dir: ${env:CAFIL_DATA_ROOT}
+  image_size: 224
+model:
+  backbone: resnet18
+  pretrained: imagenet
+  num_classes: 10
+optim:
+  type: sgd
+  lr: 0.0001
+  momentum: 0.9
+  weight_decay: 0.0001
+  nesterov: true
+sched:
+  type: cosine
+  t_max: 100
+train:
+  epochs: 100
+  eval_every: 1
+  batch_size: 128
+  num_workers: 8
+  amp: true
+  channels_last: true
+  persistent_workers: true
+  prefetch_factor: 4
+  max_num_checkpoint: 5
+  sampler:
+    type: random
+eval:
+  # Pure annotation-free protocol: no group labels are loaded or evaluated.
+  primary_metric: mean
+  annotation_free: true
+  test_at_end: true
+loss:
+  type: cafil_align
+  eta: 4.0
+  lam_align: 0.25
+  anchor_update_rate: 0.9
+  label_smoothing: 0.0
+  num_buckets: 20
+output:
+  run_dir: ${env:CAFIL_OUTPUT_ROOT}/cafil_best/nico/stage2
+  log_path: ${env:CAFIL_OUTPUT_ROOT}/cafil_best/nico/stage2/train.log
