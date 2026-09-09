@@ -11,15 +11,15 @@
 读取的 artifact / 配置
 --------------------
 - **YAML 配置**：``config/<dataset>/stage1.yaml``（或通过 CLI override 指定）
-- **可选续训 checkpoint**：``train.resume_checkpoint`` 指向的 ``.pth``（含 ``model`` / ``epoch`` / ``val``）
-- **可选已有 best**：``{checkpoint_root}/{checkpoint_experiment_name}/best.pth``（用于恢复 ``best_val``）
+- **可选续训 checkpoint**：``train.resume_checkpoint`` 指向的 ``.pth``（含 ``model`` / ``epoch`` / ``train_eval``）
+- **可选已有 best**：``{checkpoint_root}/{checkpoint_experiment_name}/best.pth``（用于恢复 ``best_train_eval``）
 
 写入的 artifact
 ---------------
-- **训练指标 CSV**：``{output_dir}/dino_slot_stage1_metrics.csv``（train/val 逐 epoch 记录）
+- **训练指标 CSV**：``{output_dir}/dino_slot_stage1_metrics.csv``（train/train_eval 逐 epoch 记录）
 - **配置快照**：``{output_dir}/config.yaml`` 或 ``config_resume.yaml``
 - **Checkpoint 目录**（默认 ``{checkpoint_root}/{checkpoint_experiment_name}/``）：
-  - ``best.pth``：验证集 ``loss_total`` 最优
+  - ``best.pth``：train_eval ``loss_total`` 最优
   - ``last.pth``：最后一轮权重
   - ``best_cafil_stage1.pth``：probe_refit 启用时的发布版（供 ``concept_infer.py`` 加载）
 
@@ -82,9 +82,9 @@ def run_training() -> None:
     --------
     1. 解析 CLI 与 YAML，设置随机种子与设备；
     2. 创建输出目录与 checkpoint 目录，dump 配置快照；
-    3. 构建 ``DinoSlotStage1``、train/val DataLoader；
-    4. 可选从 ``resume_checkpoint`` 恢复 epoch 与 ``best_val``；
-    5. 主循环：按 ``train_target`` 切换可训参数 → 前向 → 分项 loss → 反传 → 验证 → 存盘；
+    3. 构建 ``DinoSlotStage1``、train/train_eval DataLoader；
+    4. 可选从 ``resume_checkpoint`` 恢复 epoch 与 ``best_train_eval``；
+    5. 主循环：按 ``train_target`` 切换可训参数 → 前向 → 分项 loss → 反传 → train_eval → 存盘；
     6. 若启用 ``probe_refit``：加载 best slot 权重，冻结 slot、仅重训 classifier，发布 ``best_cafil_stage1.pth``。
     """
     # --- 配置与运行时环境 ---
@@ -120,9 +120,9 @@ def run_training() -> None:
 
     model_cfg = _build_model_cfg(cfg)
     model = DinoSlotStage1(model_cfg).to(device)
-    # train/val DataLoader：图像增广仅在 train split 启用
+    # 两者都只读取 train split；仅优化用 loader 启用图像增强与 shuffle。
     train_loader = build_dataloader(cfg, split="train", is_train=True)
-    val_loader = build_dataloader(cfg, split="val", is_train=False)
+    train_eval_loader = build_dataloader(cfg, split="train", is_train=False)
     optimizer = None
     lr = float(train_cfg.get("lr", 1.0e-4))
     wd = float(train_cfg.get("weight_decay", 1.0e-4))
@@ -154,12 +154,12 @@ def run_training() -> None:
     ]
     # CSV 指标文件：续训时 append，否则覆盖写 header
     metrics_path = out_dir / "dino_slot_stage1_metrics.csv"
-    best_val = float("inf")
+    best_train_eval = float("inf")
     epochs = int(train_cfg.get("epochs", 20))
     log_every = int(train_cfg.get("progress_log_every", 10))
     start_epoch = 1
 
-    # --- 可选续训：恢复模型权重、起始 epoch、历史 best_val ---
+    # --- 可选续训：恢复模型权重、起始 epoch、历史 best_train_eval ---
     if resume_checkpoint:
         resume_path = Path(resume_checkpoint)
         if not resume_path.is_absolute():
@@ -167,18 +167,20 @@ def run_training() -> None:
         if not resume_path.exists():
             raise FileNotFoundError(f"Resume checkpoint not found: {resume_path}")
         resume_state = torch.load(resume_path, map_location=device)
+        if not isinstance(resume_state, dict) or "val" in resume_state or not isinstance(resume_state.get("train_eval"), dict):
+            raise RuntimeError("Resume checkpoint 使用不兼容的旧 val 协议；Stage I 仅接受包含 train_eval 的 checkpoint")
         model.load_state_dict(resume_state["model"])
         start_epoch = int(resume_state.get("epoch", 0)) + 1
-        if "val" in resume_state and isinstance(resume_state["val"], dict):
-            best_val = float(resume_state["val"].get("loss_total", best_val))
+        best_train_eval = float(resume_state["train_eval"].get("loss_total", best_train_eval))
         best_path = ckpt_dir / "best.pth"
         if best_path.exists():
             best_state = torch.load(best_path, map_location="cpu")
-            if isinstance(best_state, dict) and isinstance(best_state.get("val"), dict):
-                best_val = float(best_state["val"].get("loss_total", best_val))
+            if not isinstance(best_state, dict) or "val" in best_state or not isinstance(best_state.get("train_eval"), dict):
+                raise RuntimeError("best.pth 使用不兼容的旧 val 协议；Stage I 仅接受包含 train_eval 的 checkpoint")
+            best_train_eval = float(best_state["train_eval"].get("loss_total", best_train_eval))
         print(
             f"[stage1-dino-slot] resuming from checkpoint={resume_path} "
-            f"next_epoch={start_epoch}/{epochs} best_val={best_val:.6f}"
+            f"next_epoch={start_epoch}/{epochs} best_train_eval={best_train_eval:.6f}"
         )
         if start_epoch > epochs:
             print(f"[stage1-dino-slot] resume checkpoint already reached target epochs={epochs}; nothing to do.")
@@ -191,7 +193,7 @@ def run_training() -> None:
         f"probe_train_epochs={probe_train_epochs}, batches={len(train_loader)}"
     )
 
-    # --- 主训练循环：逐 epoch 训练 + 验证 + 选模存盘 ---
+    # --- 主训练循环：逐 epoch 训练 + train_eval + 选模存盘 ---
     append_metrics = bool(resume_checkpoint and metrics_path.exists() and start_epoch > 1)
     with metrics_path.open("a" if append_metrics else "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -275,42 +277,42 @@ def run_training() -> None:
             )
             writer.writerow({k: train_row.get(k, float("nan")) for k in fieldnames})
 
-            # --- 验证集评估（与 train 使用相同的 loss 组装策略）---
-            val = evaluate(
+            # --- train split 的确定性评估（与训练使用相同的 loss 组装策略）---
+            train_eval = evaluate(
                 model,
-                val_loader,
+                train_eval_loader,
                 device,
                 train_target=train_target,
                 include_cls_loss=bool(probe_cls_on),
             )
-            val_row = {
-                "loss_recon": val.get("loss_recon", float("nan")),
-                "loss_cls": val.get("loss_cls", float("nan")),
-                "loss_overlap": val.get("loss_overlap", float("nan")),
-                "loss_entropy": val.get("loss_entropy", float("nan")),
-                "slot_eff_area": val.get("slot_eff_area", float("nan")),
-                "slot_peak": val.get("slot_peak", float("nan")),
-                "slot_entropy": val.get("slot_entropy", float("nan")),
-                "loss_total": val.get("loss_total", float("nan")),
-                "acc": val.get("acc", float("nan")),
-                "wga": val.get("wga", float("nan")),
+            train_eval_row = {
+                "loss_recon": train_eval.get("loss_recon", float("nan")),
+                "loss_cls": train_eval.get("loss_cls", float("nan")),
+                "loss_overlap": train_eval.get("loss_overlap", float("nan")),
+                "loss_entropy": train_eval.get("loss_entropy", float("nan")),
+                "slot_eff_area": train_eval.get("slot_eff_area", float("nan")),
+                "slot_peak": train_eval.get("slot_peak", float("nan")),
+                "slot_entropy": train_eval.get("slot_entropy", float("nan")),
+                "loss_total": train_eval.get("loss_total", float("nan")),
+                "acc": train_eval.get("acc", float("nan")),
+                "wga": train_eval.get("wga", float("nan")),
             }
-            val_row.update(
+            train_eval_row.update(
                 {
                     "epoch": epoch,
-                    "split": "val",
+                    "split": "train_eval",
                     "train_phase": train_phase,
                     "probe_cls_on": int(bool(probe_cls_on)),
                     "elapsed": time.time() - start,
                 }
             )
-            writer.writerow({k: val_row.get(k, float("nan")) for k in fieldnames})
+            writer.writerow({k: train_eval_row.get(k, float("nan")) for k in fieldnames})
             f.flush()
 
-            # --- 选模逻辑：以 val loss_total 为准，更优则覆盖 best.pth；每轮另存 last.pth ---
-            val_loss = float(val_row.get("loss_total", float("inf")))
-            if val_loss < best_val:
-                best_val = val_loss
+            # --- 选模逻辑：以 train_eval loss_total 为准，更优则覆盖 best.pth；每轮另存 last.pth ---
+            train_eval_loss = float(train_eval_row.get("loss_total", float("inf")))
+            if train_eval_loss < best_train_eval:
+                best_train_eval = train_eval_loss
                 torch.save(
                     {
                         "model": model.state_dict(),
@@ -319,7 +321,7 @@ def run_training() -> None:
                         "epoch": epoch,
                         "train_phase": train_phase,
                         "probe_cls_on": bool(probe_cls_on),
-                        "val": val,
+                        "train_eval": train_eval,
                     },
                     ckpt_dir / "best.pth",
                 )
@@ -331,13 +333,14 @@ def run_training() -> None:
                     "epoch": epoch,
                     "train_phase": train_phase,
                     "probe_cls_on": bool(probe_cls_on),
+                    "train_eval": train_eval,
                 },
                 ckpt_dir / "last.pth",
             )
             print(
                 f"[stage1-dino-slot] epoch={epoch} phase={train_phase} train_L={train_row['loss_total']:.4f} "
-                f"val_L={val_loss:.4f} val_acc={val.get('acc', float('nan')):.4f} "
-                f"val_wga={val.get('wga', float('nan')):.4f} val_area={val.get('slot_eff_area', float('nan')):.3f}"
+                f"train_eval_loss={train_eval_loss:.4f} train_eval_acc={train_eval.get('acc', float('nan')):.4f} "
+                f"train_eval_wga={train_eval.get('wga', float('nan')):.4f} train_eval_area={train_eval.get('slot_eff_area', float('nan')):.3f}"
             )
 
     # --- 可选 probe_refit：slot 冻结后单独重训 ERM 探头，发布供 concept_infer 使用的 checkpoint ---
@@ -382,16 +385,16 @@ def run_training() -> None:
                 total += bsz
                 total_cls += _to_float(loss) * bsz
                 iterator.set_postfix(cls=f"{total_cls / max(total, 1):.4f}")
-            val = evaluate(model, val_loader, device, train_target="probe_only", include_cls_loss=True)
+            train_eval = evaluate(model, train_eval_loader, device, train_target="probe_only", include_cls_loss=True)
             print(
                 f"[stage1-dino-slot] probe_refit epoch={refit_epoch}/{refit_epochs} "
-                f"train_cls={total_cls / max(total, 1):.4f} val_cls={val.get('loss_cls', float('nan')):.4f} "
-                f"val_acc={val.get('acc', float('nan')):.4f}",
+                f"train_cls={total_cls / max(total, 1):.4f} train_eval_loss_cls={train_eval.get('loss_cls', float('nan')):.4f} "
+                f"train_eval_acc={train_eval.get('acc', float('nan')):.4f}",
                 flush=True,
             )
         publish_name = str(paths_cfg.get("checkpoint_publish_name", "best_cafil_stage1.pth") or "best_cafil_stage1.pth")
         publish_path = ckpt_dir / publish_name
-        # 发布 payload：含 probe_refit 后 val 指标，供 concept_infer --ckpt 使用
+        # 发布 payload：含 probe_refit 后 train_eval 指标，供 concept_infer --ckpt 使用
         publish_payload = {
             "model": model.state_dict(),
             "cfg": cfg,
@@ -399,7 +402,7 @@ def run_training() -> None:
             "epoch": epochs,
             "train_phase": f"probe_refit_{refit_epochs}ep",
             "probe_cls_on": True,
-            "val": evaluate(model, val_loader, device, train_target="probe_only", include_cls_loss=True),
+            "train_eval": evaluate(model, train_eval_loader, device, train_target="probe_only", include_cls_loss=True),
         }
         torch.save(publish_payload, publish_path)
         torch.save(publish_payload, ckpt_dir / "last.pth")

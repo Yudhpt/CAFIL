@@ -119,16 +119,16 @@ class WaterbirdsParquetDataset(Dataset):
 
 
 class NICOStage1Dataset(Dataset):
-    """NICO 的 Stage-I dict-batch 包装，训练 split 开启 augment。"""
+    """NICO 的 Stage-I dict-batch 包装，按调用方指示是否启用训练增强。"""
 
-    def __init__(self, root: Path, split: str) -> None:
+    def __init__(self, root: Path, split: str, *, augment: bool) -> None:
         from data.nico import NICODataset
 
         class _Args:
             data_dir = str(root)
             backbone_class = "Res18"
 
-        self.base = NICODataset(split, _Args(), augment=(split == "train"), return_place=True)
+        self.base = NICODataset(split, _Args(), augment=bool(augment), return_place=True)
         self._labels = list(self.base._labels)
         self._places = list(self.base._places)
 
@@ -275,7 +275,13 @@ class CsvImageDataset(Dataset):
         return labels, places
 
 
-def build_dataset(cfg: dict[str, Any], split: str, *, include_group_labels: bool | None = None) -> Dataset:
+def build_dataset(
+    cfg: dict[str, Any],
+    split: str,
+    *,
+    is_train: bool = False,
+    include_group_labels: bool | None = None,
+) -> Dataset:
     """
     根据 ``cfg["data"]["format"]`` 实例化对应数据集。
 
@@ -285,6 +291,9 @@ def build_dataset(cfg: dict[str, Any], split: str, *, include_group_labels: bool
         完整配置，需含 ``data.root``、``data.format`` 等。
     split : str
         ``train`` | ``val`` | ``test``。
+    is_train : bool
+        是否用于优化步骤。仅该模式可启用随机图像增强；因此 ``split="train"``
+        的确定性评估与 concept inference 传入 False。
     include_group_labels : bool | None
         仅对 CelebA 有效：True 强制加载 group；False 强制 annotation-free；
         None 则从 cfg / 环境变量推断。
@@ -306,7 +315,7 @@ def build_dataset(cfg: dict[str, Any], split: str, *, include_group_labels: bool
     if fmt == "waterbirds_parquet":
         return WaterbirdsParquetDataset(root=root, split=split, transform=transform)
     if fmt == "nico":
-        return NICOStage1Dataset(root=root, split=split)
+        return NICOStage1Dataset(root=root, split=split, augment=bool(is_train))
     if fmt == "celeba_attr":
         annotation_free = _annotation_free_mode_from_cfg(cfg) if include_group_labels is None else not bool(include_group_labels)
         return CelebAAttrDataset(root=root, split=split, transform=transform, annotation_free=bool(annotation_free))
@@ -380,9 +389,9 @@ def build_dataloader(
     Returns
     -------
     DataLoader
-        ``collate_fn=collate_batch``，train/val/test 使用不同 seed offset 避免混 shuffle。
+        ``collate_fn=collate_batch``，不同 split 使用不同 seed offset 避免混 shuffle。
     """
-    ds = build_dataset(cfg, split, include_group_labels=include_group_labels)
+    ds = build_dataset(cfg, split, is_train=is_train, include_group_labels=include_group_labels)
     batch_size = int(cfg["train"]["batch_size"] if is_train else cfg.get("eval", {}).get("batch_size", cfg["train"]["batch_size"]))
     runtime_cfg = cfg.get("runtime", {}) if isinstance(cfg.get("runtime", {}), dict) else {}
     num_workers = int(runtime_cfg.get("num_workers", 4))

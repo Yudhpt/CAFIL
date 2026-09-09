@@ -372,7 +372,7 @@ def evaluate(
         out = model(images, labels)
         bsz = int(labels.shape[0])
         n += bsz
-        # 与训练相同的 loss 选择逻辑，便于 val loss 曲线对齐
+        # 与训练相同的 loss 选择逻辑，便于 train_eval loss 曲线对齐
         selected = _assemble_backward_loss(model, out, train_target=train_target, include_cls_loss=include_cls_loss)
         totals["loss_total"] = totals.get("loss_total", 0.0) + _to_float(selected) * bsz
         for k, v in out.losses.items():

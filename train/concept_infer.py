@@ -82,6 +82,14 @@ def _parse_args() -> argparse.Namespace:
     return args
 
 
+def _require_train_only_splits(prototype_split: str, eval_split: str) -> None:
+    """拒绝 Stage I 外的 concept inference split，防止访问 val/test。"""
+    invalid = {"prototype_split": str(prototype_split), "eval_split": str(eval_split)}
+    invalid = {name: split for name, split in invalid.items() if split != "train"}
+    if invalid:
+        raise ValueError(f"concept inference 只允许 train split，实际={invalid}")
+
+
 @torch.inference_mode()
 def _collect(model: DinoSlotStage1, loader: Any, device: torch.device, *, max_samples: int, desc: str) -> dict[str, torch.Tensor]:
     """Collect the slots, class labels, and frozen-probe NLL used by pi-consensus."""
@@ -338,6 +346,7 @@ def main() -> None:
     are never written to the artifact directory.
     """
     args = _parse_args()
+    _require_train_only_splits(args.prototype_split, args.eval_split)
     output_dir = _output_dir(args)
     protected = (output_dir / "P.npy", output_dir / "consscore.npy")
     if not args.overwrite_existing and any(path.exists() for path in protected):
@@ -354,8 +363,8 @@ def main() -> None:
     if mismatch.missing_keys or mismatch.unexpected_keys:
         raise RuntimeError(f"Stage-I checkpoint mismatch: {mismatch}")
 
-    prototype = _collect(model, build_dataloader(config, split=str(args.prototype_split), is_train=False), device, max_samples=int(args.max_prototype_samples), desc="concept dictionary")
-    evaluation = _collect(model, build_dataloader(config, split=str(args.eval_split), is_train=False), device, max_samples=int(args.max_eval_samples), desc="concept assignments")
+    prototype = _collect(model, build_dataloader(config, split="train", is_train=False), device, max_samples=int(args.max_prototype_samples), desc="concept dictionary")
+    evaluation = _collect(model, build_dataloader(config, split="train", is_train=False), device, max_samples=int(args.max_eval_samples), desc="concept assignments")
     _log(f"collected dictionary={len(prototype['labels'])} assignments={len(evaluation['labels'])}")
 
     dictionary = _global_concept_dictionary(prototype["slots"], num_prototypes=int(args.num_prototypes), backend=str(args.concept_dict_backend), random_state=int(args.pipeline_random_state))
