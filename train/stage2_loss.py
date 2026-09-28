@@ -72,7 +72,7 @@ def bucket_alignment_loss(
     num_classes: int,
     update_rate: float,
 ) -> tuple[torch.Tensor, int]:
-    """Align class-matched concept buckets to previously observed anchors.
+    """Align class-matched concept buckets to stored anchors.
 
     Each batch mean remains in the gradient graph while anchors are updated
     afterward without gradients.  The returned pair count is a diagnostic.

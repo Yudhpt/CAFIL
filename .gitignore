@@ -57,8 +57,17 @@ events.out.tfevents.*
 *.ckpt
 *.safetensors
 *.onnx
+*.bin
+*.pkl
+*.pickle
+*.h5
+*.hdf5
 *.npy
 *.npz
+*.tar
+*.tar.gz
+*.tgz
+*.zip
 
 # Local environments, secrets, caches, and temporary files
 .env

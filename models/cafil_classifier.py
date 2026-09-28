@@ -54,7 +54,7 @@ class CAFILImageClassifier(nn.Module):
 
         手动展开 ``forward`` 而非 ``backbone(x)`` 的原因
         -----------------------------------------------
-        标准 ResNet 路径：conv1→bn→relu→maxpool→layer1-4→avgpool→flatten。; /    ----------/i    Parameters
+        标准 ResNet 路径：conv1→bn→relu→maxpool→layer1-4→avgpool→flatten。
 
         形状
         ----

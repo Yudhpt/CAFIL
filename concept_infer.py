@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """CAFIL 四阶段流水线 — Stage-II 概念推断入口（仓库根 shim）。
 
-Stage-I 训练完成后运行本脚本，产出 ``P.npy`` 与 ``consscore.npy``，供 Stage-II 使用。
+Stage-I 训练完成后运行本脚本，原子发布四个 identity-bound 数组与 complete manifest，供 Stage-II 使用。
 实现见 ``train/concept_infer.py``。
 """
 from __future__ import annotations

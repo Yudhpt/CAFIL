@@ -36,7 +36,7 @@ r"""CAFIL Stage-I 训练模型：冻结 DINO + Slot Attention 区域分解。
 ``concept_infer._collect`` 调用 ``model(images, y)`` 并收集：
 
 - ``out.slots [N,K,D_slot]`` → 全局球面 k-means → 概念字典 U → 样本分布 P
-- ``out.slot_masks [N,K,N_patch]`` → 可视化 / s_kmeans 的 v1 熵过滤
+- ``out.slot_masks [N,K,N_patch]`` → 可视化 / s_kmeans 的注意力熵过滤
 - ``out.logits`` → frozen-probe NLL，参与 pi_consensus 的 ``min(z_ell, z_d)`` 共识分数
 
 ## 张量形状（默认配置）

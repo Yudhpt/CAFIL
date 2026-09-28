@@ -340,7 +340,7 @@ def main() -> None:
     use_amp = device.type == "cuda" and bool(train_cfg.get("amp", True))
     scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
     # 对每个 (类别 c, concept bucket m) 维护视觉特征 φ 的动态 anchor A_{c,m}。
-    # anchor_update_rate 是当前 batch mean 的写入率，不是旧 anchor 的 decay。
+    # anchor_update_rate 加权当前 batch mean；1 - rate 加权已存 anchor。
     # bucket m 由 P_i.argmax() 决定：样本 i 被分配到哪个概念原型，即落入哪个 bucket。
     # bucket_seen[c,m]=False 时该 bucket 尚未有 anchor，L_align 中不参与跨 bucket 配对。
     bucket_means = torch.zeros(

@@ -42,7 +42,7 @@ def canonical_stage2_checkpoint_name(metric: str) -> str:
 
 
 def stage2_checkpoint_candidates(metric: str) -> tuple[str, ...]:
-    """Return canonical-first checkpoint candidates, including legacy fallbacks."""
+    """Return checkpoint filename candidates in lookup priority."""
     canonical = canonical_stage2_checkpoint_name(metric)
     return _WGA_CANDIDATES if canonical == _WGA_CANDIDATES[0] else _MEAN_CANDIDATES
 

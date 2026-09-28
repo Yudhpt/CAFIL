@@ -46,7 +46,7 @@ def build_train_dataset(data_cfg: dict[str, Any]):
     """Build the CAFIL training dataset with required Stage-I artifacts."""
     stage1_dir = data_cfg.get("stage1_dir")
     if stage1_dir is None or not str(stage1_dir).strip():
-        raise ValueError("CAFIL Stage II requires dataset.stage1_dir with P.npy and consscore.npy")
+        raise ValueError("CAFIL Stage II requires dataset.stage1_dir with four identity-bound arrays and a complete manifest")
     return DatasetWithStage1(
         dataset_class(str(data_cfg["name"])),
         "train",

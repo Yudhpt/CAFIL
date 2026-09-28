@@ -103,7 +103,7 @@ def make_torch_generator(seed: int) -> torch.Generator:
     创建带固定种子的 ``torch.Generator``，供 ``DataLoader(..., generator=...)`` 使用。
 
     与 ``set_global_seed`` 配合：全局种子保证模型初始化；loader generator 保证
-    shuffle 顺序可复现且不同 split 可用不同 offset（见 ``data/common.build_dataloader``）。
+    shuffle 顺序可复现且不同 split 可用不同 offset（见 ``data/dataloader/stage1.py 的 build_dataloader``）。
     """
     g = torch.Generator()
     g.manual_seed(int(seed))

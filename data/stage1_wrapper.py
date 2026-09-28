@@ -3,7 +3,8 @@ Stage-II 数据集包装：注入 Stage-I  per-sample 信号
 ==================================================
 
 在基础数据集（如 ``WaterbirdsDataset``）之上加载 Stage-I 产物：
-``P.npy``（概念软分配）与 ``consscore.npy``（一致性分数 ``s_i``），使 Stage-II
+``P.npy``（概念软分配）、``consscore.npy``（一致性分数 ``s_i``）、
+``sample_ids.npy``、``labels.npy`` 与 complete manifest，使 Stage-II
 每个 batch 样本附带 ``P_i, s_i``。
 
 流水线位置
@@ -17,7 +18,7 @@ Stage-II 数据集包装：注入 Stage-I  per-sample 信号
 重要约束
 --------
 - ``P`` 每行必须近似归一化为 1（概念分配概率）
-- ``len(dataset)`` 必须与 ``P/s`` 第一维长度一致，否则立即 ``ValueError``
+- 数组长度、样本 identity、目标标签与 manifest 哈希必须完全一致，否则立即 ``ValueError``
 - ``consscore.npy`` 存 **原始** ``s_i``，供 Stage-II 损失或采样使用（见论文对齐规则）
 """
 from __future__ import annotations
@@ -25,11 +26,16 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Type
 
-import numpy as np
 import torch
 from torch.utils.data import Dataset
 
-from data.stage1_artifacts import load_stage1_artifacts
+from data.stage1_artifacts import (
+    dataset_labels,
+    dataset_sample_paths,
+    hash_sample_paths,
+    load_identity_scheme,
+    load_stage1_artifacts,
+)
 
 
 class DatasetWithStage1(Dataset):
@@ -39,13 +45,13 @@ class DatasetWithStage1(Dataset):
     Parameters
     ----------
     dataset_cls : Type[Dataset]
-        基础数据集类（构造签名需兼容 ``setname, args, augment, return_place``）。
+        基础数据集类（构造签名必须接受 ``setname, args, augment, return_place``）。
     setname : str
         ``train`` | ``val`` | ``test``。
     args : Any
         传给基础数据集的配置对象（通常含 ``data_dir``、``backbone_class``）。
     stage1_dir : str | Path
-        Stage-I 产物目录，内含 ``P.npy``、``consscore.npy``。
+        Stage-I 产物目录，内含四个数组与 complete manifest。
     augment : bool
         是否对训练集做数据增强。
 
@@ -66,16 +72,18 @@ class DatasetWithStage1(Dataset):
         # Stage-II 不需要 spurious place 标签，故 return_place=False
         self.base = dataset_cls(setname=setname, args=args, augment=augment, return_place=False)
         self.stage1_dir = Path(stage1_dir)
-        # 加载 Stage-I 概念分配矩阵 [N, K]
-        self.P, self.s = load_stage1_artifacts(self.stage1_dir, len(self))
-        if len(self) != int(self.P.shape[0]) or len(self) != int(self.s.shape[0]):
-            raise ValueError(
-                f"Dataset/Stage1 length mismatch: len={len(self)} P={self.P.shape} s={self.s.shape}"
-            )
-        # P 的每一行应表示对 K 个概念的原型分配，行和为 1
-        row_sum = self.P.sum(axis=1)
-        if not np.allclose(row_sum, 1.0, atol=1.0e-4):
-            raise ValueError(f"P rows are not normalized: min={row_sum.min():.6f}, max={row_sum.max():.6f}")
+        identity_scheme = load_identity_scheme(self.stage1_dir)
+        expected_ids = hash_sample_paths(
+            dataset_sample_paths(self.base),
+            scheme=identity_scheme,
+            dataset_root=getattr(args, "data_dir", None),
+        )
+        self.P, self.s = load_stage1_artifacts(
+            self.stage1_dir,
+            len(self),
+            expected_sample_ids=expected_ids,
+            expected_labels=dataset_labels(self.base),
+        )
 
     def __len__(self) -> int:
         return len(self.base)

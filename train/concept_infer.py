@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Infer the two Stage-I artifacts consumed by CAFIL Stage II.
+"""Infer identity-bound Stage-I artifacts consumed by CAFIL Stage II.
 
 The command loads a reviewed Stage-I checkpoint, clusters frozen slot features
-into a global concept dictionary, and writes exactly two arrays:
+into a global concept dictionary, and atomically writes four arrays plus a complete manifest:
 
 * ``P.npy``: per-image soft concept assignments, shape ``[N, R]``.
 * ``consscore.npy``: per-image pi-consensus score, shape ``[N]``.
+* ``sample_ids.npy`` and ``labels.npy``: ordered audit sidecars.
+* ``stage1_artifacts_manifest.json``: hashes and publication-complete marker.
 
 """
 
@@ -26,6 +28,11 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from data.dataloader.stage1 import build_dataloader
+from data.stage1_artifacts import (
+    RELATIVE_IDENTITY_SCHEME,
+    hash_sample_paths,
+    publish_stage1_artifacts,
+)
 from modules.s_kmeans import spherical_kmeans
 from utils.stage1 import _build_model_cfg, get_device, load_cfg, set_seed
 from train.stage1_model import DinoSlotStage1
@@ -91,14 +98,26 @@ def _require_train_only_splits(prototype_split: str, eval_split: str) -> None:
 
 
 @torch.inference_mode()
-def _collect(model: DinoSlotStage1, loader: Any, device: torch.device, *, max_samples: int, desc: str) -> dict[str, torch.Tensor]:
-    """Collect the slots, class labels, and frozen-probe NLL used by pi-consensus."""
+def _collect(
+    model: DinoSlotStage1,
+    loader: Any,
+    device: torch.device,
+    *,
+    max_samples: int,
+    desc: str,
+    identity_root: str | Path,
+) -> dict[str, Any]:
+    """Collect slots, labels, probe NLL, and stable sample identities."""
     model.eval()
     collected_slots, collected_labels, collected_nll = [], [], []
+    collected_paths: list[str] = []
     total = 0
     for batch in tqdm(loader, desc=desc, dynamic_ncols=True, leave=False):
         images = batch["images"].to(device, non_blocking=True)
         labels = batch["labels"].to(device, non_blocking=True)
+        paths = batch.get("paths")
+        if not isinstance(paths, list) or len(paths) != int(images.shape[0]):
+            raise ValueError("Concept inference paths must align one-to-one with images")
         output = model(images, labels)
         take = int(images.shape[0]) if max_samples <= 0 else min(int(images.shape[0]), max(0, max_samples - total))
         if take <= 0:
@@ -106,12 +125,22 @@ def _collect(model: DinoSlotStage1, loader: Any, device: torch.device, *, max_sa
         collected_slots.append(output.slots[:take].cpu())
         collected_labels.append(labels[:take].cpu())
         collected_nll.append(F.cross_entropy(output.logits[:take], labels[:take], reduction="none").cpu())
+        collected_paths.extend(str(path) for path in paths[:take])
         total += take
         if max_samples > 0 and total >= max_samples:
             break
     if not collected_slots:
         raise RuntimeError("Concept inference collected no samples")
-    return {"slots": torch.cat(collected_slots), "labels": torch.cat(collected_labels), "probe_nll": torch.cat(collected_nll)}
+    return {
+        "slots": torch.cat(collected_slots),
+        "labels": torch.cat(collected_labels),
+        "probe_nll": torch.cat(collected_nll),
+        "sample_ids": hash_sample_paths(
+            collected_paths,
+            scheme=RELATIVE_IDENTITY_SCHEME,
+            dataset_root=identity_root,
+        ),
+    }
 
 
 def _per_class_zscore(values: np.ndarray, labels: np.ndarray) -> np.ndarray:
@@ -129,6 +158,7 @@ def _output_dir(args: argparse.Namespace) -> Path:
     if str(args.output_dir).strip():
         return Path(args.output_dir).expanduser().resolve()
     return Path(args.ckpt).expanduser().resolve().parent / "concept_infer_outputs"
+
 def _faiss_spherical_kmeans(x: torch.Tensor, k: int, *, random_state: int, iters: int = 30, nredo: int = 3) -> torch.Tensor:
     """FAISS 球面 KMeans：从 slot 向量聚类得到全局原型中心 U。"""
     try:
@@ -339,22 +369,34 @@ def _knn_radius_density_from_p(
 
 
 def main() -> None:
-    """Run the reviewed pi-consensus chain and write only Stage-II inputs.
+    """Run the reviewed pi-consensus chain and publish identity-bound inputs.
 
-    The score is ``min(z(probe_nll), z(density(P)))`` within each class.  The
-    class labels are used only while deriving this annotation-free score; they
-    are never written to the artifact directory.
+    The score is ``min(z(probe_nll), z(density(P)))`` within each class.
+    Target labels and opaque sample IDs are audit sidecars, not shortcut labels.
     """
     args = _parse_args()
     _require_train_only_splits(args.prototype_split, args.eval_split)
     output_dir = _output_dir(args)
-    protected = (output_dir / "P.npy", output_dir / "consscore.npy")
+    protected = tuple(
+        output_dir / name
+        for name in (
+            "P.npy",
+            "consscore.npy",
+            "sample_ids.npy",
+            "labels.npy",
+            "stage1_artifacts_manifest.json",
+        )
+    )
     if not args.overwrite_existing and any(path.exists() for path in protected):
         raise FileExistsError(f"Refusing to overwrite existing concept artifacts in {output_dir}")
 
     checkpoint = torch.load(str(args.ckpt), map_location="cpu")
     config = checkpoint.get("cfg") or load_cfg(str(args.config_name), args.overrides)
     config.setdefault("data", {})["sample"] = "simple"
+    paths_cfg = config.get("paths", {}) if isinstance(config.get("paths"), dict) else {}
+    identity_root = paths_cfg.get("data_root") or config["data"].get("root")
+    if not identity_root:
+        raise ValueError("Concept inference requires paths.data_root or data.root for sample identity")
     set_seed(int(args.pipeline_random_state))
     device = get_device(config)
     _log(f"loading Stage-I checkpoint: {args.ckpt}")
@@ -363,8 +405,22 @@ def main() -> None:
     if mismatch.missing_keys or mismatch.unexpected_keys:
         raise RuntimeError(f"Stage-I checkpoint mismatch: {mismatch}")
 
-    prototype = _collect(model, build_dataloader(config, split="train", is_train=False), device, max_samples=int(args.max_prototype_samples), desc="concept dictionary")
-    evaluation = _collect(model, build_dataloader(config, split="train", is_train=False), device, max_samples=int(args.max_eval_samples), desc="concept assignments")
+    prototype = _collect(
+        model,
+        build_dataloader(config, split="train", is_train=False),
+        device,
+        max_samples=int(args.max_prototype_samples),
+        desc="concept dictionary",
+        identity_root=identity_root,
+    )
+    evaluation = _collect(
+        model,
+        build_dataloader(config, split="train", is_train=False),
+        device,
+        max_samples=int(args.max_eval_samples),
+        desc="concept assignments",
+        identity_root=identity_root,
+    )
     _log(f"collected dictionary={len(prototype['labels'])} assignments={len(evaluation['labels'])}")
 
     dictionary = _global_concept_dictionary(prototype["slots"], num_prototypes=int(args.num_prototypes), backend=str(args.concept_dict_backend), random_state=int(args.pipeline_random_state))
@@ -372,10 +428,17 @@ def main() -> None:
     density, _ = _knn_radius_density_from_p(assignments, evaluation["labels"].numpy(), k_frac=float(args.density_k_frac), k_min=int(args.density_k_min), backend=str(args.density_backend), chunk=int(args.density_chunk))
     score = np.minimum(_per_class_zscore(evaluation["probe_nll"].numpy(), evaluation["labels"].numpy()), _per_class_zscore(density, evaluation["labels"].numpy())).astype(np.float32)
 
-    output_dir.mkdir(parents=True, exist_ok=True)
-    np.save(output_dir / "P.npy", assignments.astype(np.float32))
-    np.save(output_dir / "consscore.npy", score)
-    _log(f"wrote P.npy {assignments.shape} and consscore.npy {score.shape} -> {output_dir}")
+    manifest = publish_stage1_artifacts(
+        output_dir,
+        {
+            "P.npy": assignments.astype(np.float32),
+            "consscore.npy": score,
+            "sample_ids.npy": evaluation["sample_ids"],
+            "labels.npy": evaluation["labels"].numpy().astype(np.int64, copy=False),
+        },
+        identity_root=identity_root,
+    )
+    _log(f"published identity-bound Stage-I artifacts -> {manifest}")
 
 
 if __name__ == "__main__":

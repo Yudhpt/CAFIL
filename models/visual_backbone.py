@@ -55,7 +55,7 @@ def build_visual_backbone(
     """
     backbone_key = str(name).lower()
     if backbone_key == "resnet50":
-        # IMAGENET1K_V2 为较新的 ResNet50 预训练权重
+        # ResNet50 使用 IMAGENET1K_V2 预训练权重
         weights = models.ResNet50_Weights.IMAGENET1K_V2 if pretrained else None
         backbone = models.resnet50(weights=weights)
     elif backbone_key == "resnet18":

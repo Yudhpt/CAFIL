@@ -159,7 +159,7 @@ def run_training() -> None:
     log_every = int(train_cfg.get("progress_log_every", 10))
     start_epoch = 1
 
-    # --- 可选续训：恢复模型权重、起始 epoch、历史 best_train_eval ---
+    # --- 可选续训：恢复模型权重、起始 epoch 与 best_train_eval 跟踪状态 ---
     if resume_checkpoint:
         resume_path = Path(resume_checkpoint)
         if not resume_path.is_absolute():

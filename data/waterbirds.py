@@ -22,7 +22,7 @@ columns: ``image``, ``label``, ``place``, ``bird``；其中 ``image`` 为 dict�
 
 流水线位置
 ----------
-- **阶段**：Stage-II 训练 / 评估（``WaterbirdsDataset``）；Stage-I 也可用 ``data/common.WaterbirdsParquetDataset``
+- **阶段**：Stage-II 训练 / 评估（``WaterbirdsDataset``）；Stage-I 也可用 ``data/dataloader/stage1.py 中的 WaterbirdsParquetDataset``
 - **输入**：``setname``、``args.data_dir``、是否 augment
 - **输出**：tensor 图像 + 整数标签（+ 可选 place）
 """
@@ -48,7 +48,7 @@ def _build_default_transform(backbone_class: str, augment: bool) -> transforms.C
     Parameters
     ----------
     backbone_class : str
-        保留参数以与其他数据集 API 一致（当前未区分 Res18/50 的 normalize）。
+        参数用于统一数据集 API；Res18/Res50 使用相同的 normalize。
     augment : bool
         True：RandomResizedCrop + 水平翻转；False：Resize(256) + CenterCrop。
 
@@ -142,7 +142,7 @@ class WaterbirdsDataset(Dataset):
         data_dir = str(getattr(args, "data_dir", "") or "").strip()
         if not data_dir:
             raise ValueError("WaterbirdsDataset requires args.data_dir")
-        # 兼容不同大小写的目录名
+        # 按优先级搜索数据目录的两种大小写形式
         root_candidates = [
             osp.join(data_dir, "waterbirds"),
             osp.join(data_dir, "Waterbirds"),

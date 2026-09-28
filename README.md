@@ -82,6 +82,9 @@ Stage I 到 Stage II 的最小文件契约为：
 ```text
 P.npy          # [N, K]，训练样本顺序上的概念分配
 consscore.npy  # [N]，对应样本的一致性分数
+sample_ids.npy # [N]，数据集相对路径的稳定 SHA-256 identity
+labels.npy     # [N]，用于逐行核验的目标标签
+stage1_artifacts_manifest.json  # 完整发布标记、shape、dtype、大小与 SHA-256
 ```
 
 ### 运行流程
@@ -95,7 +98,7 @@ consscore.npy  # [N]，对应样本的一致性分数
 # 1. 训练冻结 DINO 的 Slot Attention 表征
 python train_stage1.py --config config/<dataset>/stage1.yaml
 
-# 2. 从 Stage I checkpoint 生成 P.npy 与 consscore.npy
+# 2. 从 Stage I checkpoint 生成带身份校验的四个数组与 complete manifest
 python concept_infer.py --config config/<dataset>/concept_infer.yaml --ckpt /path/to/stage1.pth
 
 # 3. 训练 CAFIL 分类器
@@ -206,6 +209,9 @@ The Stage I to Stage II contract is:
 ```text
 P.npy          # [N, K] concept assignment distribution in training-sample order
 consscore.npy  # [N] consensus score for the same samples
+sample_ids.npy # [N] stable SHA-256 identities from dataset-relative paths
+labels.npy     # [N] target labels for row-by-row validation
+stage1_artifacts_manifest.json  # complete marker with shape, dtype, size, and SHA-256
 ```
 
 ### Workflow

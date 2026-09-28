@@ -14,7 +14,7 @@
 - **Stage-II checkpoint**（二选一）：
   - ``--checkpoint`` 显式路径；或
   - ``resolve_stage2_checkpoint(cfg)`` 按配置自动解析 canonical
-    ``best_wga.pth`` / ``best_val_mean.pth``，并兼容 legacy ``best_val_wga.pth`` / ``best.pth``
+    ``best_wga.pth`` / ``best_val_mean.pth``，并按顺序尝试 ``best_val_wga.pth`` / ``best.pth``
 - checkpoint 内嵌 ``config`` / ``model`` / 可选 ``val`` / ``epoch``
 
 写入的 artifact
@@ -70,7 +70,7 @@ def _build_eval_dataset(cfg: dict[str, Any], split: str, *, annotation_free: boo
 def _load_checkpoint_payload(path: Path, device: torch.device) -> dict[str, Any]:
     """加载 checkpoint 并规范化为 ``{"model": state_dict, ...}`` 字典。
 
-    兼容两种磁盘格式：完整训练 payload（含 ``model`` 键）或裸 state_dict。
+    接受两种磁盘格式：完整训练 payload（含 ``model`` 键）或裸 state_dict。
     """
     ckpt = torch.load(path, map_location=device)
     if isinstance(ckpt, dict) and "model" in ckpt:

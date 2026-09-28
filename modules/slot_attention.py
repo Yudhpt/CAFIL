@@ -15,7 +15,7 @@ r"""Slot Attention 模块 — CAFIL Stage-I 的区域分解核心。
     - 加载 Stage-I checkpoint 后调用 ``model(images)``，收集 ``out.slots`` 与 ``out.slot_masks``（即 ``attn_own``）。
     - ``slots`` 经全局球面 k-means 得到概念字典 U，再 softmax 分配得到样本级概念分布 ``P [N, R]``；
       该 P 是 Stage-II 的 ``P.npy`` 输入，**不经过** SlotAttention 的参数再训练。
-    - ``slot_masks`` 可用于可视化 slot 空间覆盖，以及 ``s_kmeans`` 中 v1 过滤的注意力熵计算。
+    - ``slot_masks`` 可用于可视化 slot 空间覆盖，以及 ``s_kmeans`` 的注意力熵过滤。
 
 ## 张量形状约定
 
